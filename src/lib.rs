@@ -85,8 +85,6 @@ impl FixedBox {
 ///  # Fields
 ///
 /// * `nodes_per_unit` - grid resolution
-/// * `lowest`- lowest fixed potential (for color scale)
-/// * `highest` - highest fixed potential (for color scale)
 /// * `x_offset` - offset to the x axis (internal coordinates are unsigned so this is required to
 /// reflect the coordinates of the task.
 /// * `y_offset` - offset to the y axis
@@ -94,8 +92,6 @@ impl FixedBox {
 /// * `invert_y`- if this is true the y axis will go from top to bottom (data is not filliped)
 pub struct Scale {
     pub nodes_per_unit: usize,
-    pub lowest: f64,
-    pub highest: f64,
     pub x_offset: isize,
     pub y_offset: isize,
     pub invert_x: bool,
@@ -229,15 +225,34 @@ impl Grid {
     pub fn to_csv(&self, path: &str) -> std::io::Result<()> {
         let mut csv = File::create(path)?;
         let mut file_string = String::with_capacity(self.nodes.len() * 20);
-        file_string.push_str(&format!("{},", self.nodes[0]));
-        self.nodes.iter().enumerate().skip(1).for_each(|(i, n)| {
-            if i%self.width == 0 {
-                //avoid adding a ', ' at end of line (out of vanity)
-                file_string.pop();
-                file_string.push('\n');
+        if self.scale.invert_x {
+            file_string.push_str(
+                &format!("100,{}", (self.width - 1) as f64 / self.scale.nodes_per_unit as f64 - self.scale.x_offset as f64));
+            for x in 1..self.width {
+                file_string.push_str(
+                    &format!(",{}", (self.width - x) as f64 / self.scale.nodes_per_unit as f64 - self.scale.x_offset as f64));
             }
-            file_string.push_str(&format!("{},", n));
-        });
+        } else {
+            file_string.push_str(
+                &format!("100,{}", -self.scale.x_offset));
+            for x in 1..self.width {
+                file_string.push_str(
+                    &format!(",{}", x as f64 / self.scale.nodes_per_unit as f64 - self.scale.x_offset as f64));
+            }
+        }
+        file_string.push('\n');
+        let height = self.nodes.len() / self.width;
+        for y in 0..height {
+            file_string.push_str(&format!("{}", if self.scale.invert_y {
+                (height - y) as f64 / self.scale.nodes_per_unit as f64 - self.scale.y_offset as f64
+            } else {
+                y as f64 / self.scale.nodes_per_unit as f64 - self.scale.y_offset as f64
+            }));
+            for x in 0..self.width {
+                file_string.push_str(&format!(",{}", self.nodes[y*self.width+x]));
+            }
+            file_string.push('\n');
+        }
         csv.write_all(file_string.as_bytes())?;
         Ok(())
     }

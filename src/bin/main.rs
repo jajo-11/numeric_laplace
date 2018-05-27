@@ -7,8 +7,6 @@ fn main() {
         // don't overdo these 1 or 2 is reasonable 10 is noticeably slower but still feasible
         // you might need lower deltas to generate usable plots though
         nodes_per_unit: 2,
-        lowest: 0.0,
-        highest: 100.0,
         x_offset: 10,
         y_offset: 25,
         invert_x: false,
@@ -25,6 +23,6 @@ fn main() {
     let (iterations, watch_data) = grid.evaluate(0.01, 1.8, watch_point);
     println!("Done in {} iterations", iterations);
     grid.to_csv("out.csv").expect("Could not write grid file!");
-    numeric_laplace::plot::plot_2d_color_map(grid);
+    numeric_laplace::plot::plot_2d_color_map("out.csv");
     watch_data_to_csv(watch_data, "watch.csv").expect("Could not write watch file!");
 }
