@@ -1,5 +1,8 @@
 extern crate rand;
 
+mod thread_pool;
+pub mod plot;
+
 use rand::prelude::*;
 use rand::ChaChaRng;
 use std::fs::File;
@@ -167,6 +170,41 @@ impl Grid {
         let mut iterations = 0;
         while max_delta > accepted_delta {
             iterations += 1;
+            max_delta = 0.0;
+            for &i in self.dynamic_nodes_indices.iter() {
+                let top = self.nodes[i-self.width];
+                let right = self.nodes[i-1];
+                let left = self.nodes[i+1];
+                let bottom = self.nodes[i+self.width];
+
+                let new_value = (top +  right + left + bottom) / 4.0;
+
+                let mut delta = self.nodes[i] - new_value;
+                self.nodes[i] = self.nodes[i] - over_relaxation*delta;
+                if delta.abs() > max_delta {max_delta = delta.abs()};
+            }
+            watch_data.push(self.nodes[watch]);
+            print!("\r{} iterations, max delta = {}", iterations, max_delta);
+            std::io::stdout().flush().expect("Could not flush stdout!");
+        }
+        print!("\n");
+        (iterations, watch_data)
+    }
+
+    pub fn evaluate_multi_thread(&mut self, accepted_delta: f64, over_relaxation: f64, watch: Point)
+                    -> (usize, Vec<f64>) {
+        let watch = watch.y() * self.width + watch.x();
+        if self.nodes.len() <= watch {panic!("Watch is outside of the grid");}
+        let mut watch_data = Vec::with_capacity(200);
+        watch_data.push(self.nodes[watch]);
+
+        let num_threads = 8;
+        //let pool = ThreadPool::new(num_threads);
+
+        let mut max_delta= accepted_delta + 1.0;
+        let mut iterations = 0;
+        while max_delta > accepted_delta {
+            iterations += 1;
             println!("{} iterations, max delta = {}", iterations, max_delta);
             max_delta = 0.0;
             for &i in self.dynamic_nodes_indices.iter() {
@@ -186,21 +224,19 @@ impl Grid {
         (iterations, watch_data)
     }
 
-
     /// generates a csv file at the specified path containing the nodes
     /// these files then can be opened in a spread sheet for plotting.
     pub fn to_csv(&self, path: &str) -> std::io::Result<()> {
         let mut csv = File::create(path)?;
         let mut file_string = String::with_capacity(self.nodes.len() * 20);
-        file_string.push_str(&format!("{}, ", self.nodes[0]));
+        file_string.push_str(&format!("{},", self.nodes[0]));
         self.nodes.iter().enumerate().skip(1).for_each(|(i, n)| {
             if i%self.width == 0 {
                 //avoid adding a ', ' at end of line (out of vanity)
                 file_string.pop();
-                file_string.pop();
                 file_string.push('\n');
             }
-            file_string.push_str(&format!("{}, ", n));
+            file_string.push_str(&format!("{},", n));
         });
         csv.write_all(file_string.as_bytes())?;
         Ok(())
@@ -233,7 +269,7 @@ pub fn watch_data_to_csv(watch_data: Vec<f64>, path: &str) -> std::io::Result<()
     let mut file_string = String::with_capacity(watch_data.len() * 20);
     file_string.push_str(&format!("{}", watch_data[0]));
     watch_data.iter().skip(1).for_each(|i| {
-        file_string.push_str(&format!(", {}", i));
+        file_string.push_str(&format!(",{}", i));
     });
     csv.write_all(file_string.as_bytes())?;
     Ok(())
