@@ -7,8 +7,26 @@ use std::io::Write;
 
 #[derive(Debug)]
 pub struct Point {
-    pub x: usize,
-    pub y: usize,
+    x: usize,
+    y: usize,
+}
+
+impl Point {
+    pub fn new(x: isize, y: isize, scale: &Scale) -> Point {
+        let x = if scale.invert_x { (-x + scale.x_offset) as usize * scale.nodes_per_unit }
+            else { (x + scale.x_offset) as usize * scale.nodes_per_unit };
+        let y = if scale.invert_y { (-y + scale.y_offset) as usize * scale.nodes_per_unit }
+            else { (y + scale.y_offset) as usize * scale.nodes_per_unit };
+        Point {x, y}
+    }
+
+    pub fn x(&self) -> usize {
+        self.x
+    }
+
+    pub fn y(&self) -> usize {
+        self.y
+    }
 }
 
 /// A simple struct for defining the elements in the model that have fixed potentials
@@ -28,24 +46,30 @@ pub struct FixedBox {
 }
 
 impl FixedBox {
+    pub fn new(point: Point, width: usize, height: usize, potential: f64, scale: &Scale)
+        -> FixedBox {
+        let width = width * scale.nodes_per_unit;
+        let height = height * scale.nodes_per_unit;
+        FixedBox {point, width, height, potential}
+    }
+
     /// adds the box in form of fixed nodes to the provided `nodes` and `fixed_nodes_indices` vectors
     pub fn gen_fixed_box(
         self,
         width: usize,
         height: usize,
         nodes: &mut Vec<f64>,
-        fixed_nodes_indices: &mut Vec<usize>, ) {
+        fixed_nodes_indices: &mut Vec<usize>) {
         //check constraints
-        if self.point.x >  width-1
-            || self.point.y > height-1
-            || self.point.x +  self.width > width-1
-            || self.point.y + self.height > height-1 {
+        if self.point.x() >  width-1
+            || self.point.y() > height-1
+            || self.point.x() +  self.width > width-1
+            || self.point.y() + self.height > height-1 {
             panic!("A fixed box lays outside of the grid.\n{:#?}", self)
         }
-
         for i in 0..self.height {
             for j in 0..self.width {
-                let index = width*(i+self.point.y)+j+self.point.x;
+                let index = width*(i+self.point.y())+j+self.point.x();
                 fixed_nodes_indices.push(index);
                 nodes[index] = self.potential;
             }
@@ -69,8 +93,8 @@ pub struct Scale {
     pub nodes_per_unit: usize,
     pub lowest: f64,
     pub highest: f64,
-    pub x_offset: usize,
-    pub y_offset: usize,
+    pub x_offset: isize,
+    pub y_offset: isize,
     pub invert_x: bool,
     pub invert_y: bool,
 }
@@ -89,7 +113,7 @@ pub struct Grid {
     pub nodes: Vec<f64>,
     pub width: usize,
     dynamic_nodes_indices:Vec<usize>,
-    scale: Scale,
+    pub scale: Scale,
 }
 
 impl Grid {
@@ -103,10 +127,20 @@ impl Grid {
         fixed_elements.into_iter().for_each(|x| {
             x.gen_fixed_box(width, height, &mut nodes, &mut fixed_nodes_indices);
         });
+
         //"inverting" the `fixed_nodes_indices` vector
-        let dynamic_nodes_indices: Vec<usize> = (0..width*height).filter(|x| {
-            !fixed_nodes_indices.contains(x)
-        }).collect();
+        // this is the fastest method  i came up with if done wrong this will take a long time
+        // (i.e. using .contains())
+        fixed_nodes_indices.sort_unstable();
+        fixed_nodes_indices.dedup();
+        let mut dynamic_nodes_indices =
+            Vec::with_capacity(nodes.len()-fixed_nodes_indices.len());
+        let mut j = 0;
+        for i in 0..nodes.len() {
+            if i != fixed_nodes_indices[j] {
+                dynamic_nodes_indices.push(i);
+            } else { j += 1; }
+        }
 
         //filling the nodes with noise
         let mut random = ChaChaRng::from_entropy();
@@ -124,7 +158,7 @@ impl Grid {
 
     pub fn evaluate(&mut self, accepted_delta: f64, over_relaxation: f64, watch: Point)
         -> (usize, Vec<f64>) {
-        let watch = watch.y * self.width + watch.x;
+        let watch = watch.y() * self.width + watch.x();
         if self.nodes.len() <= watch {panic!("Watch is outside of the grid");}
         let mut watch_data = Vec::with_capacity(200);
         watch_data.push(self.nodes[watch]);
@@ -143,7 +177,7 @@ impl Grid {
 
                 let new_value = (top +  right + left + bottom) / 4.0;
 
-                let mut delta = (self.nodes[i] - new_value);
+                let mut delta = self.nodes[i] - new_value;
                 self.nodes[i] = self.nodes[i] - over_relaxation*delta;
                 if delta.abs() > max_delta {max_delta = delta.abs()};
             }
