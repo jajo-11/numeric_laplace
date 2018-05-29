@@ -7,6 +7,10 @@ use rand::prelude::*;
 use rand::ChaChaRng;
 use std::fs::File;
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::mpsc;
+use std::thread;
 
 #[derive(Debug)]
 pub struct Point {
