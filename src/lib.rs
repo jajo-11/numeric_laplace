@@ -1,3 +1,4 @@
+#![feature(iterator_step_by)]
 extern crate rand;
 
 mod thread_pool;
@@ -7,10 +8,6 @@ use rand::prelude::*;
 use rand::ChaChaRng;
 use std::fs::File;
 use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::mpsc;
-use std::thread;
 
 #[derive(Debug)]
 pub struct Point {
@@ -115,7 +112,7 @@ pub struct Scale {
 pub struct Grid {
     pub nodes: Vec<f64>,
     pub width: usize,
-    dynamic_nodes_indices:Vec<usize>,
+    dynamic_nodes_indices: Vec<usize>,
     pub scale: Scale,
 }
 
@@ -191,37 +188,9 @@ impl Grid {
         (iterations, watch_data)
     }
 
-    pub fn evaluate_multi_thread(&mut self, accepted_delta: f64, over_relaxation: f64, watch: Point)
-                    -> (usize, Vec<f64>) {
-        let watch = watch.y() * self.width + watch.x();
-        if self.nodes.len() <= watch {panic!("Watch is outside of the grid");}
-        let mut watch_data = Vec::with_capacity(200);
-        watch_data.push(self.nodes[watch]);
-
-        let num_threads = 8;
-        //let pool = ThreadPool::new(num_threads);
-
-        let mut max_delta= accepted_delta + 1.0;
-        let mut iterations = 0;
-        while max_delta > accepted_delta {
-            iterations += 1;
-            println!("{} iterations, max delta = {}", iterations, max_delta);
-            max_delta = 0.0;
-            for &i in self.dynamic_nodes_indices.iter() {
-                let top = self.nodes[i-self.width];
-                let right = self.nodes[i-1];
-                let left = self.nodes[i+1];
-                let bottom = self.nodes[i+self.width];
-
-                let new_value = (top +  right + left + bottom) / 4.0;
-
-                let mut delta = self.nodes[i] - new_value;
-                self.nodes[i] = self.nodes[i] - over_relaxation*delta;
-                if delta.abs() > max_delta {max_delta = delta.abs()};
-            }
-            watch_data.push(self.nodes[watch]);
-        }
-        (iterations, watch_data)
+    pub fn evaluate_multi_thread(&mut self, accepted_delta: f64, over_relaxation: f64) {
+        let pool = thread_pool::ThreadPool::new(16, self, over_relaxation).expect("Is size over 8?");
+        pool.evaluate(accepted_delta, self.dynamic_nodes_indices.len());
     }
 
     /// generates a csv file at the specified path containing the nodes

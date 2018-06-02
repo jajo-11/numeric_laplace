@@ -5,7 +5,7 @@ use std::io::Write;
 pub fn plot_2d_color_map(file: &str) {
     let mut temp = File::create("temp").expect("Could not create temp fileS");
     let file_string = format!(
-        "set terminal pngcairo  transparent enhanced font \"arial,10\" fontscale 1.0 size 600, 400
+        "set terminal pngcairo  transparent enhanced font \"arial,10\" fontscale 1.0 size 800, 600
 set output 'out.png'
 set title \"Electrical Potential Approximation Based On Laplace Equation\"
 set cblabel \"Potential in kV\"
