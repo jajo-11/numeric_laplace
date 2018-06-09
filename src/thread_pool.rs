@@ -18,7 +18,7 @@ struct Worker {
 
 impl Worker {
     pub fn new(receiver: Arc<Mutex<mpsc::Receiver<Message>>>,
-               sender: mpsc::Sender<(usize, f64)>, nodes: &mut [f64], nodes_width: usize,
+               sender: mpsc::Sender<(usize, f64)>, nodes: &mut [f64], width: usize,
                dynamic_nodes: &[usize], over_relaxation: f64) -> Worker {
         Worker {
             handle: Some(unsafe { crossbeam_utils::scoped::spawn_unsafe(move || loop {
@@ -27,16 +27,15 @@ impl Worker {
                     Message::Do((sector, start, end)) => {
                         let mut max_delta = 0.0;
                         for &i in dynamic_nodes[start..end].iter() {
-                            let top = nodes[i - nodes_width];
-                            let right = nodes[i - 1];
-                            let left = nodes[i + 1];
-                            let bottom = nodes[i + nodes_width];
-
-                            let new_value = (top + right + left + bottom) / 4.0;
+                            let mut new_value = nodes[i-width];
+                            new_value += nodes[i-1];
+                            new_value += nodes[i+1];
+                            new_value += nodes[i+width];
+                            new_value /= 4.0;
 
                             let mut delta = nodes[i] - new_value;
-                            nodes[i] -= over_relaxation * delta;
-                            if delta.abs() > max_delta { max_delta = delta.abs() };
+                            nodes[i] -= over_relaxation*delta;
+                            if delta.abs() > max_delta {max_delta = delta.abs()};
                         }
                         sender.send((sector, max_delta)).unwrap();
                     }
@@ -79,8 +78,8 @@ impl Lock {
 }
 
 impl ThreadPool {
-    pub fn new(size: usize, grid: &mut super::Grid, over_relaxation: f64) -> Option<ThreadPool> {
-        assert!(size > 0);
+    pub fn new(size: usize, grid: &mut super::Grid, over_relaxation: f64) -> ThreadPool {
+        assert!(size > 1);
 
         let (sender_pool, receiver_threads) = mpsc::channel();
         let receiver_threads = Arc::new(Mutex::new(receiver_threads));
@@ -88,7 +87,6 @@ impl ThreadPool {
         let (sender_threads, receiver_pool) = mpsc::channel();
 
         let max_sections = grid.dynamic_nodes_indices.len() / (2 * grid.width);
-        if max_sections == 1 { return None; } //multi-threading makes no sense
         let size = if size * 2 > max_sections { max_sections } else { size * 2 };
 
         let ptr = grid.nodes.as_mut_ptr();
@@ -103,7 +101,7 @@ impl ThreadPool {
                                      over_relaxation));
         }
 
-        Some(ThreadPool { workers, sender: sender_pool, receiver: receiver_pool })
+        ThreadPool { workers, sender: sender_pool, receiver: receiver_pool }
     }
 
     pub fn evaluate(&self, accepted_delta: f64, dynamic_indices_len: usize) {
@@ -117,9 +115,9 @@ impl ThreadPool {
         let mut sector_locks = vec![Lock::Two; self.workers.len() * 2];
         let last_sector_index = self.workers.len() * 2 - 1;
 
-        for i in (0..last_sector_index).step_by(2) {
-            sector_locks[i] = Lock::None;
-            self.sender.send(Message::Do((i, dynamic_sectors[i], dynamic_sectors[i+1])))
+        for i in 0..(last_sector_index+1) / 2 {
+            sector_locks[i*2] = Lock::None;
+            self.sender.send(Message::Do((i*2, dynamic_sectors[i*2], dynamic_sectors[i*2+1])))
                 .expect("Could not send message to Threads!");
         }
         sector_locks[last_sector_index] = Lock::One;
@@ -133,11 +131,13 @@ impl ThreadPool {
             sector_deltas[sector] = delta;
             if sector == 0 {
                 match sector_locks[sector + 1] {
-                    Lock::None => {panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
+                    Lock::None => {
+                        panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
                     Lock::One => {
                         sector_locks[sector + 1] = Lock::None;
                         sector_locks[sector].up();
-                        self.sender.send(Message::Do((sector + 1, dynamic_sectors[sector + 1], dynamic_sectors[sector + 2])))
+                        self.sender.send(Message::Do((sector + 1, dynamic_sectors[sector + 1],
+                                                      dynamic_sectors[sector + 2])))
                             .expect("Could not send message to Threads!");
                         if sector + 1 != last_sector_index {
                             sector_locks[sector + 2].up();
@@ -147,11 +147,13 @@ impl ThreadPool {
                 }
             } else if  sector == last_sector_index {
                 match sector_locks[sector - 1] {
-                    Lock::None => {panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
+                    Lock::None => {
+                        panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
                     Lock::One => {
                         sector_locks[sector - 1] = Lock::None;
                         sector_locks[sector].up();
-                        self.sender.send(Message::Do((sector - 1, dynamic_sectors[sector - 1], dynamic_sectors[sector])))
+                        self.sender.send(Message::Do((sector - 1, dynamic_sectors[sector - 1],
+                                                      dynamic_sectors[sector])))
                             .expect("Could not send message to Threads!");
                         if sector - 1 != 0 {
                             sector_locks[sector - 2].up();
@@ -161,11 +163,13 @@ impl ThreadPool {
                 }
             } else {
                 match sector_locks[sector + 1] {
-                    Lock::None => {panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
+                    Lock::None => {
+                        panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
                     Lock::One => {
                         sector_locks[sector + 1] = Lock::None;
                         sector_locks[sector].up();
-                        self.sender.send(Message::Do((sector + 1, dynamic_sectors[sector + 1], dynamic_sectors[sector + 2])))
+                        self.sender.send(Message::Do((sector + 1, dynamic_sectors[sector + 1],
+                                                      dynamic_sectors[sector + 2])))
                             .expect("Could not send message to Threads!");
                         if sector + 1 != last_sector_index {
                             sector_locks[sector + 2].up();
@@ -175,11 +179,13 @@ impl ThreadPool {
                 }
 
                 match sector_locks[sector - 1] {
-                    Lock::None => {panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
+                    Lock::None => {
+                        panic!{"Sector is unlocked and neighbouring sector was just returning!"}},
                     Lock::One => {
                         sector_locks[sector - 1] = Lock::None;
                         sector_locks[sector].up();
-                        self.sender.send(Message::Do((sector - 1, dynamic_sectors[sector - 1], dynamic_sectors[sector])))
+                        self.sender.send(Message::Do((sector - 1, dynamic_sectors[sector - 1],
+                                                      dynamic_sectors[sector])))
                             .expect("Could not send message to Threads!");
                         if sector - 1 != 0 {
                             sector_locks[sector - 2].up();
@@ -204,5 +210,6 @@ impl Drop for ThreadPool {
             }
         }
         print!("\r");
+        io::stdout().flush().expect("Could not flush stdout!");
     }
 }
